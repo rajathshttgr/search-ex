@@ -1,0 +1,113 @@
+import yt_dlp
+
+
+def extract_metadata(url):
+    ydl_opts = {
+        "quiet": True,
+        "skip_download": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    return info
+
+
+def upload_music(youtube_url, session_id):
+    """
+    1. download music from youtube url and update musics metaadata in SQLite
+    2. normalize the audio
+    3. Chunking of audio and update chunks in SQLite
+    4. call embedding model by passing audio chunks
+    5. store those embeddings along with chunk id in vector db (qdrant)
+    6. return success
+    """
+    # extra metadata and print
+    metadata = extract_metadata(youtube_url)
+
+    # store info in db
+    """
+    music_id = db.create(
+        {
+            "title": metadata.get("title"),
+            "channel": metadata.get("uploader"),
+            "duration": metadata.get("duration"),
+            "thumbnail": metadata.get("thumbnail"),
+            "chunk_length": 6,
+            "sampling_rate": 168,
+            "chunks_count": metadata.get("duration") / 6,
+        }
+    )
+    """
+
+    # download audio
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "outtmpl": "data/audio_file.%(ext)s",
+        "quiet": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([youtube_url])
+
+    return True
+
+
+"""
+HLD overview: upload songs to db, search by audio sample
+
+- songs are preprocessed and chunked to 5-10 seconds clips and embedded using the external models.
+So, now only embeddings are stored in vector db. embeddings ID is associated with meta data including
+song url, time stamp, and some extra info like singer, song name, tags etc.
+- query is 5-10 seconds audio clip which is processed and embedded using external model,
+this embeddings is used to do search query, which returns top k similar chunk id along with the meta data.
+
+
+API DOCS:
+POST /audio/upload
+{
+"youtube_url":"",
+"song_name"?:"",
+"music_composer"?:"",
+"tags"?: ["pop", "indian"]
+}
+
+POST /audio/search
+{
+"audio_sample":"",
+"limmit":""
+}
+
+GET /audio?limit=20
+
+GET /audio/:music_id
+
+
+DB Schema:
+
+musics:
+{
+"music_id":"",
+"youtube_url":"",
+"song_name"?:"",
+"music_composer"?:"",
+"tags"?: ["pop", "indian"],
+"chunks_count": 18,
+"chunk_length":""
+"sampling_rate":"",
+}
+
+chunks:
+{
+"chunk_id":"",
+"music_id: "", (fk)
+"temp_chunk_url":"",
+}
+
+
+Vector DB Schema:
+{
+"embedings" : which is generated from external model,
+"chunk_id" : identifier
+}
+"""
