@@ -1,4 +1,5 @@
 import yt_dlp
+from src.models import Music
 
 
 def extract_metadata(url):
@@ -13,42 +14,39 @@ def extract_metadata(url):
     return info
 
 
-def upload_music(youtube_url, session_id):
-    """
-    1. download music from youtube url and update musics metaadata in SQLite
-    2. normalize the audio
-    3. Chunking of audio and update chunks in SQLite
-    4. call embedding model by passing audio chunks
-    5. store those embeddings along with chunk id in vector db (qdrant)
-    6. return success
-    """
+def upload_music(youtube_url, session_id, db):
+
     # extra metadata and print
     metadata = extract_metadata(youtube_url)
 
-    # store info in db
-    """
-    music_id = db.create(
-        {
-            "title": metadata.get("title"),
-            "channel": metadata.get("uploader"),
-            "duration": metadata.get("duration"),
-            "thumbnail": metadata.get("thumbnail"),
-            "chunk_length": 6,
-            "sampling_rate": 168,
-            "chunks_count": metadata.get("duration") / 6,
-        }
+    music = Music(
+        session_id=session_id,
+        youtube_url=youtube_url,
+        title=metadata.get("title"),
+        channel=metadata.get("uploader"),
+        chunks_count=metadata.get("duration") // 6,
+        chunk_length_s=6,
+        sampling_rate=168,
+        tags="music",
+        status="processing",
     )
-    """
+    db.add(music)
+    db.commit()
+    db.refresh(music)
 
-    # download audio
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "outtmpl": "data/audio_file.%(ext)s",
-        "quiet": True,
-    }
+    print(music.title)
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([youtube_url])
+    # # download audio
+    # ydl_opts = {
+    #     "format": "bestaudio/best",
+    #     "outtmpl": "data/audio_file.%(ext)s",
+    #     "quiet": True,
+    # }
+
+    # with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    #     ydl.download([youtube_url])
+
+    # return True
 
     return True
 
@@ -110,4 +108,14 @@ Vector DB Schema:
 "embedings" : which is generated from external model,
 "chunk_id" : identifier
 }
+"""
+
+
+"""
+1. download music from youtube url and update musics metaadata in SQLite
+2. normalize the audio
+3. Chunking of audio and update chunks in SQLite
+4. call embedding model by passing audio chunks
+5. store those embeddings along with chunk id in vector db (qdrant)
+6. return success
 """
