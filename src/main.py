@@ -1,11 +1,12 @@
-from fastapi import FastAPI, Request, Depends
+from sqlalchemy import select
+from fastapi import FastAPI, Request, Depends, BackgroundTasks
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel
-from src.models import Base
+from src.models import Base, Music
 import uuid
 
-from src.upload import upload_music
+from src.upload import upload_music, preprocess_audio
 
 engine = create_engine(
     "sqlite:///./app.db",
@@ -55,13 +56,20 @@ class UploadAudio(BaseModel):
 
 @app.post("/audio/upload")
 def upload_audio(
-    request: Request, upload_audio: UploadAudio, db: Session = Depends(get_db)
+    request: Request,
+    upload_audio: UploadAudio,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
 ):
     session_id = request.cookies.get("session_id")
     youtube_url = upload_audio.youtube_url
-    success = upload_music(youtube_url, session_id, db)
-    if success:
-        return {"message": "audio upload task initialized successfully"}
+    music_id = upload_music(youtube_url, session_id, db)
+    if music_id:
+        background_tasks.add_task(preprocess_audio, youtube_url)
+        return {
+            "message": "audio upload task initialized successfully",
+            "music_id": music_id,
+        }
     else:
         return {"message": "failed to initialize audio upload task"}
 
@@ -80,20 +88,24 @@ def search_audio(request: Request, search_audio: SearchAudio):
 
 
 @app.get("/audio")
-def list_all_audio(request: Request, offset: int = 0, limit: int = 10):
+def list_all_audio(
+    request: Request, offset: int = 0, limit: int = 10, db: Session = Depends(get_db)
+):
     session_id = request.cookies.get("session_id")
-    return {
-        "message": "list all music audio stored",
-        "offset": offset,
-        "limit": limit,
-        "session_id": session_id,
-    }
+
+    stmt = (
+        select(Music).where(Music.session_id == session_id).offset(offset).limit(limit)
+    )
+    music_list = db.execute(stmt).scalars().all()
+
+    return music_list
 
 
 @app.get("/audio/{music_id}")
-def get_audio(request: Request, music_id: str):
+def get_audio(request: Request, music_id: str, db: Session = Depends(get_db)):
     session_id = request.cookies.get("session_id")
-    return {
-        "message": f"get music audio with id {music_id}",
-        "session_id": session_id,
-    }
+    stmt = select(Music).where(Music.id == music_id and Music.session_id == session_id)
+    music = db.execute(stmt).scalars().first()
+    if not music:
+        return {"message": "music not found"}
+    return music
