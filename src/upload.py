@@ -1,4 +1,5 @@
 import yt_dlp
+from src.models import Music
 
 
 def extract_metadata(url):
@@ -13,33 +14,7 @@ def extract_metadata(url):
     return info
 
 
-def upload_music(youtube_url, session_id):
-    """
-    1. download music from youtube url and update musics metaadata in SQLite
-    2. normalize the audio
-    3. Chunking of audio and update chunks in SQLite
-    4. call embedding model by passing audio chunks
-    5. store those embeddings along with chunk id in vector db (qdrant)
-    6. return success
-    """
-    # extra metadata and print
-    metadata = extract_metadata(youtube_url)
-
-    # store info in db
-    """
-    music_id = db.create(
-        {
-            "title": metadata.get("title"),
-            "channel": metadata.get("uploader"),
-            "duration": metadata.get("duration"),
-            "thumbnail": metadata.get("thumbnail"),
-            "chunk_length": 6,
-            "sampling_rate": 168,
-            "chunks_count": metadata.get("duration") / 6,
-        }
-    )
-    """
-
+def preprocess_audio(youtube_url):
     # download audio
     ydl_opts = {
         "format": "bestaudio/best",
@@ -49,8 +24,37 @@ def upload_music(youtube_url, session_id):
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([youtube_url])
+    # normalize the audio
+    # chunking of audio to 6-10 seconds clips
+    # embedd list of chunk file paths
+    # store those embeddings along with chunk id in vector db (qdrant)
+    pass
 
-    return True
+
+def upload_music(youtube_url, session_id, db):
+
+    # extra metadata and print
+    metadata = extract_metadata(youtube_url)
+
+    music = Music(
+        session_id=session_id,
+        youtube_url=youtube_url,
+        title=metadata.get("title"),
+        channel=metadata.get("uploader"),
+        chunks_count=metadata.get("duration") // 6,
+        chunk_length_s=6,
+        sampling_rate=168,
+        tags="music",
+        status="processing",
+    )
+    db.add(music)
+    db.commit()
+    db.refresh(music)
+
+    ## add following tasks to background worker
+    preprocess_audio(youtube_url)
+
+    return music.id
 
 
 """
@@ -61,26 +65,6 @@ So, now only embeddings are stored in vector db. embeddings ID is associated wit
 song url, time stamp, and some extra info like singer, song name, tags etc.
 - query is 5-10 seconds audio clip which is processed and embedded using external model,
 this embeddings is used to do search query, which returns top k similar chunk id along with the meta data.
-
-
-API DOCS:
-POST /audio/upload
-{
-"youtube_url":"",
-"song_name"?:"",
-"music_composer"?:"",
-"tags"?: ["pop", "indian"]
-}
-
-POST /audio/search
-{
-"audio_sample":"",
-"limmit":""
-}
-
-GET /audio?limit=20
-
-GET /audio/:music_id
 
 
 DB Schema:
@@ -110,4 +94,14 @@ Vector DB Schema:
 "embedings" : which is generated from external model,
 "chunk_id" : identifier
 }
+"""
+
+
+"""
+1. download music from youtube url and update musics metaadata in SQLite
+2. normalize the audio
+3. Chunking of audio and update chunks in SQLite
+4. call embedding model by passing audio chunks
+5. store those embeddings along with chunk id in vector db (qdrant)
+6. return success
 """
